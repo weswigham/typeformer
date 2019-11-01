@@ -1,0 +1,12 @@
+{
+    "extends": "../tsconfig-noncomposite-base",
+    "compilerOptions": {
+        "outFile": "../../output/library.js"
+    },
+    "files": [
+        "utils.ts"
+    ],
+    "references": [
+        { "path": "../core", "prepend": true }
+    ]
+}

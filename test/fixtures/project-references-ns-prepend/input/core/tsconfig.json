@@ -1,0 +1,10 @@
+{
+    "extends": "../tsconfig-base",
+    "compilerOptions": {
+        "outFile": "../../output/core.js"
+    },
+
+    "files": [
+        "core.ts"
+    ]
+}
