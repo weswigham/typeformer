@@ -12,5 +12,13 @@
   "license": "MIT",
   "dependencies": {
     "typescript": "^3.6.4"
+  },
+  "devDependencies": {
+    "@types/jest": "^24.0.21",
+    "@types/node": "^12.12.5",
+    "dir-compare": "^1.8.0",
+    "jest": "^24.9.0",
+    "jest-matcher-utils": "^24.9.0",
+    "ts-jest": "^24.1.0"
   }
 }
