@@ -1,6 +1,23 @@
-import * as ts from "typescript";
-import * as path from "path";
 import * as fs from "fs";
+import * as path from "path";
+import {
+    createPrinter,
+    createSolutionBuilder,
+    createSolutionBuilderHost,
+    isIdentifier,
+    Node,
+    SourceFile,
+    sys,
+    transform,
+    TransformationContext,
+    TypeChecker,
+    visitEachChild,
+    VisitResult,
+    getNameOfDeclaration,
+    Declaration,
+    isPropertyAccessExpression,
+    isQualifiedName
+} from "typescript";
 
 export function transformProjectAtPath(rootConfig: string, outDir: string) {
     // We need to:
@@ -26,7 +43,7 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
     // This all means we'll be doing 3 seperate transforms, redoing diagnostic checks between each phase.
 
     const projDir = path.dirname(rootConfig);
-    const host = ts.createSolutionBuilderHost(ts.sys);
+    const host = createSolutionBuilderHost(sys);
     // we just want to (ab)use the builder API to traverse the project reference graph
     // and find all source files we need to transform, so we override the `createProgram`
     // hook to get a type checker and run our transform on each invocation
@@ -42,8 +59,8 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
             !f.fileName.endsWith(".jsx")
         );
         const checker = result.getProgram().getTypeChecker();
-        const newSources = ts.transform(candidateFiles, [transformFactoryFactory(checker)]);
-        const printer = ts.createPrinter({}, {
+        const newSources = transform(candidateFiles, [getExplicitifyTransformFactory(checker)]);
+        const printer = createPrinter({}, {
             onEmitNode: newSources.emitNodeWithNotification,
             substituteNode: newSources.substituteNode
         });
@@ -61,19 +78,33 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
         return result;
     };
     
-
-    const solution = ts.createSolutionBuilder(host, [rootConfig], {});
+    const solution = createSolutionBuilder(host, [rootConfig], {});
     solution.clean(); // we _do_ need to clean to get a good build, though
+
+    // Building will now trigger phase 1 - making every namespace member reference explicit
     solution.build();
     return;
 
-    function transformFactoryFactory(checker: ts.TypeChecker) {
-        return transformFactory;
-        function transformFactory(context: ts.TransformationContext) {
-            return transform;
+    function getExplicitifyTransformFactory(checker: TypeChecker) {
+        return explicitifyTransformFactory;
+        function explicitifyTransformFactory(context: TransformationContext) {
+            return transformSourceFile;
 
-            function transform(node: ts.SourceFile) {
-                return node;
+            function transformSourceFile(node: SourceFile) {
+                return visitEachChild(node, visitChildren, context);
+            }
+
+            function visitChildren<T extends Node>(node: T): VisitResult<T> {
+                // We narrow the identifiers we check down to just those which aren't the name of
+                // a declaration and aren't the RHS of a property access or qualified name
+                if (isIdentifier(node) &&
+                    getNameOfDeclaration(node.parent as Declaration) !== node &&
+                    !(isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
+                    !(isQualifiedName(node.parent) && node.parent.right === node)) {
+
+                    checker.getTypeAtLocation(node).symbol
+                }
+                return visitEachChild(node, visitChildren, context);
             }
         }
     }
