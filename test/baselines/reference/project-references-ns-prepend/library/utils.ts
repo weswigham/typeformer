@@ -1,5 +1,4 @@
-namespace ns {
-    export function getVersion() {
-        return versionMajorMinor;
-    }
+import {versionMajorMinor} from "../core/core";
+export function getVersion() {
+    return versionMajorMinor;
 }
