@@ -28,7 +28,12 @@ import {
     VariableLikeDeclaration,
     PropertyAccessExpression,
     SymbolFlags,
-    EntityNameOrEntityNameExpression
+    EntityNameOrEntityNameExpression,
+    isModuleDeclaration,
+    Symbol,
+    NodeBuilderFlags,
+    isTypeReferenceNode,
+    isTypeQueryNode
 } from "typescript";
 
 export function transformProjectAtPath(rootConfig: string, outDir: string) {
@@ -101,9 +106,11 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
         return explicitifyTransformFactory;
         function explicitifyTransformFactory(context: TransformationContext) {
             const resolver = (context as ExposeInternalsOfTransformationContext).getEmitResolver();
+            let sourceFile: SourceFile;
             return transformSourceFile;
 
             function transformSourceFile(node: SourceFile) {
+                sourceFile = node;
                 return visitEachChild(node, visitChildren, context);
             }
 
@@ -114,8 +121,17 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
                     getNameOfDeclaration(node.parent as Declaration) !== node &&
                     !(isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
                     !(isQualifiedName(node.parent) && node.parent.right === node)) {
-
-                    checker.getTypeAtLocation(node).symbol
+                    const sym = checker.getSymbolAtLocation(node);
+                    const parent = sym && (sym as {parent?: Symbol}).parent;
+                    if (parent && parent.declarations && parent.declarations.length && parent.declarations.some(isModuleDeclaration)) {
+                        const newName = checker.symbolToEntityName(sym!, SymbolFlags.Namespace, sourceFile, NodeBuilderFlags.UseOnlyExternalAliasing);
+                        if (newName && !isIdentifier(newName)) {
+                            if (isQualifiedName(node.parent) || isTypeReferenceNode(node.parent) || isTypeQueryNode(node.parent)) {
+                                return newName as VisitResult<Node> as VisitResult<T>;
+                            }
+                            return checker.symbolToExpression(sym!, SymbolFlags.Namespace, sourceFile, NodeBuilderFlags.UseOnlyExternalAliasing) as VisitResult<Node> as VisitResult<T>;
+                        }
+                    }
                 }
                 return visitEachChild(node, visitChildren, context);
             }
@@ -132,6 +148,12 @@ interface InternalEmitResolver {
     isEntityNameVisible(entityName: EntityNameOrEntityNameExpression, enclosingDeclaration: Node): InternalSymbolVisibilityResult;
 }
 
+const enum SymbolAccessibility {
+    Accessible,
+    NotAccessible,
+    CannotBeNamed
+}
+
 interface InternalSymbolVisibilityResult {
-    accessible: number;
+    accessibility: SymbolAccessibility
 }
