@@ -16,7 +16,19 @@ import {
     getNameOfDeclaration,
     Declaration,
     isPropertyAccessExpression,
-    isQualifiedName
+    isQualifiedName,
+    Identifier,
+    ModuleDeclaration,
+    EnumDeclaration,
+    ImportEqualsDeclaration,
+    FunctionLike,
+    ParameterDeclaration,
+    FunctionDeclaration,
+    AccessorDeclaration,
+    VariableLikeDeclaration,
+    PropertyAccessExpression,
+    SymbolFlags,
+    EntityNameOrEntityNameExpression
 } from "typescript";
 
 export function transformProjectAtPath(rootConfig: string, outDir: string) {
@@ -88,6 +100,7 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
     function getExplicitifyTransformFactory(checker: TypeChecker) {
         return explicitifyTransformFactory;
         function explicitifyTransformFactory(context: TransformationContext) {
+            const resolver = (context as ExposeInternalsOfTransformationContext).getEmitResolver();
             return transformSourceFile;
 
             function transformSourceFile(node: SourceFile) {
@@ -108,4 +121,17 @@ export function transformProjectAtPath(rootConfig: string, outDir: string) {
             }
         }
     }
+}
+
+interface ExposeInternalsOfTransformationContext extends TransformationContext {
+    /*@internal*/ getEmitResolver(): InternalEmitResolver;
+}
+
+interface InternalEmitResolver {
+    isSymbolAccessible(symbol: Symbol, enclosingDeclaration: Node | undefined, meaning: SymbolFlags | undefined, shouldComputeAliasToMarkVisible: boolean): InternalSymbolVisibilityResult;
+    isEntityNameVisible(entityName: EntityNameOrEntityNameExpression, enclosingDeclaration: Node): InternalSymbolVisibilityResult;
+}
+
+interface InternalSymbolVisibilityResult {
+    accessible: number;
 }
