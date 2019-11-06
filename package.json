@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc -p ./",
     "watch": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest",
+    "diff": "node -e \"require(\\\"child_process\\\").execSync(`\\\"${process.env.DIFF}\\\" test/baselines/reference test/baselines/local`)\""
   },
   "author": "",
   "license": "MIT",
