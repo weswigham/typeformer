@@ -12,17 +12,34 @@ import {
     TransformerFactory,
     TypeChecker
 } from "typescript";
-import { getExplicitifyTransformFactory } from "./transforms/explicitify";
-import { getStripNamespacesTransformFactory } from "./transforms/stripNamespaces";
-import { getInlineImportsTransformFactory } from "./transforms/inlineImports";
+import { getExplicitifyTransformFactoryFactory } from "./transforms/explicitify";
+import { getStripNamespacesTransformFactoryFactory } from "./transforms/stripNamespaces";
+import { getInlineImportsTransformFactoryFactory } from "./transforms/inlineImports";
+import ts = require("typescript");
+
+export interface ProjectTransformerConfig {
+    onTransformConfigFile?: TransformerFactory<SourceFile>;
+    onTransformComplete?: () => CompletedTransformData;
+}
+
+export interface CompletedTransformData {
+    additionalOutputFiles?: SourceFile[];
+}
+
+export type SetConfigTransformCallback = (transform: TransformerFactory<SourceFile>) => void;
+export type ProjectTransformerFactory = (projectTransformerConfig: ProjectTransformerConfig) => ProgramTransformerFactory;
+export type ProgramTransformerFactory = (checker: TypeChecker, program: ts.Program) => TransformerFactory<SourceFile>;
 
 /**
  * Loads a project up and executes the given transformer on all programs within the project
  * @param rootConfig The path to the root tsconfig with references to all projects
  * @param outDir The output directory to collect the transformed files and config files in (set to `dirname(rootConfig)` to overwrite input)
- * @param getTransformerFactory The factory to produce the transformer to execute
+ * @param getTransformerFactoryFactory The factory to produce the factory to produce the transformer to execute
+ *  - The first call is done once to set up the project context
+ *  - The inner call is called once per program within that project with the checker for that program
+ *  - The transformer within that is then called once per transformable thing within that program
  */
-export function transformProject(rootConfig: string, outDir: string, getTransformerFactory: (checker: TypeChecker) => TransformerFactory<SourceFile>) {
+export function transformProject(rootConfig: string, outDir: string, getTransformerFactoryFactory: ProjectTransformerFactory) {
     const projDir = path.dirname(rootConfig);
     const host = createSolutionBuilderHost(sys);
     const allConfigFiles = new Set<string>([rootConfig]);
@@ -30,6 +47,8 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
     // and find all source files we need to transform, so we override the `createProgram`
     // hook to get a type checker and run our transform on each invocation
     const createProgram = host.createProgram;
+    const transformConfig: ProjectTransformerConfig = {};
+    const getTransformFactory = getTransformerFactoryFactory(transformConfig);
     host.createProgram = (names, opts, host, oldProgram, configDiag, refs) => {
         const result = createProgram(names, opts, host, oldProgram, configDiag, refs);
         [(opts as {configFilePath?: string}).configFilePath!, ...(opts as {configFile?: { extendedSourceFiles?: string[] }}).configFile!.extendedSourceFiles!].forEach(f => f && allConfigFiles.add(f));
@@ -40,8 +59,9 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
             !f.fileName.endsWith(".js") &&
             !f.fileName.endsWith(".jsx")
         );
-        const checker = result.getProgram().getTypeChecker();
-        const newSources = transform(candidateFiles, [getTransformerFactory(checker)]);
+        const program = result.getProgram();
+        const checker = program.getTypeChecker();
+        const newSources = transform(candidateFiles, [getTransformFactory(checker, program)]);
         const printer = createPrinter({}, {
             onEmitNode: newSources.emitNodeWithNotification,
             substituteNode: newSources.substituteNode
@@ -68,14 +88,31 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
 
     // Copy config files to output
     allConfigFiles.forEach(f => {
-        const fragment = path.relative(path.resolve(projDir), f);
-        const outPath = path.join(path.resolve(outDir), fragment);
-        try {
-            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        let content = fs.readFileSync(f).toString();
+        if (transformConfig.onTransformConfigFile) {
+            const result = ts.transform(ts.parseJsonText(f, content), [transformConfig.onTransformConfigFile]);
+            const printer = createPrinter({}, {
+                onEmitNode: result.emitNodeWithNotification,
+                substituteNode: result.substituteNode
+            });
+            for (const file of result.transformed) {
+                writeFileRelativeToOutput(file.fileName, printer.printFile(file))
+            }
         }
-        catch {}
-        fs.writeFileSync(outPath, fs.readFileSync(f));
+        else {
+            writeFileRelativeToOutput(f, content);
+        }
     });
+
+    if (transformConfig.onTransformComplete) {
+        const result = transformConfig.onTransformComplete();
+        if (result.additionalOutputFiles && result.additionalOutputFiles.length) {
+            const printer = createPrinter();
+            for (const file of result.additionalOutputFiles) {
+                writeFileRelativeToOutput(file.fileName, printer.printFile(file));
+            }
+        }
+    }
 
     const diagnostics: Diagnostic[] = [];
     const checkHost = createSolutionBuilderHost(sys, /*createProgram*/ undefined, diag => {
@@ -95,6 +132,16 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
     }
     resultSolution.clean();
     return;
+
+    function writeFileRelativeToOutput(filePath: string, content: string) {
+        const fragment = path.relative(path.resolve(projDir), filePath);
+        const outPath = path.join(path.resolve(outDir), fragment);
+        try {
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        }
+        catch {}
+        fs.writeFileSync(outPath, content);
+    }
 }
 
 export function transformProjectFromNamespacesToModules(rootConfig: string, outDir: string) {
@@ -121,10 +168,10 @@ export function transformProjectFromNamespacesToModules(rootConfig: string, outD
     // This all means we'll be doing 3 seperate transforms, redoing diagnostic checks between each phase.
 
     // 1. Make all namespace references explicit and recheck
-    transformProject(rootConfig, outDir+"_stage1", getExplicitifyTransformFactory);
+    transformProject(rootConfig, outDir+"_stage1", getExplicitifyTransformFactoryFactory);
     // 2. Strip all namespace declarations, ensure `export` modifiers are present, collect reexport files
     //   and add namespace imports
-    transformProject(outDir+"_stage1/tsconfig.json", outDir+"_stage2", getStripNamespacesTransformFactory);
+    transformProject(outDir+"_stage1/tsconfig.json", outDir+"_stage2", getStripNamespacesTransformFactoryFactory);
     // 3. Inline Imports
-    transformProject(outDir+"_stage2/tsconfig.json", outDir, getInlineImportsTransformFactory);
+    transformProject(outDir+"_stage2/tsconfig.json", outDir, getInlineImportsTransformFactoryFactory);
 }

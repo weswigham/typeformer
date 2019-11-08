@@ -18,7 +18,11 @@ import {
     VisitResult
 } from "typescript";
 
-export function getExplicitifyTransformFactory(checker: TypeChecker) {
+export function getExplicitifyTransformFactoryFactory() {
+    return getExplicitifyTransformFactory;
+}
+
+function getExplicitifyTransformFactory(checker: TypeChecker) {
     return explicitifyTransformFactory;
     function explicitifyTransformFactory(context: TransformationContext) {
         let sourceFile: SourceFile;
