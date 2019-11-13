@@ -1,4 +1,4 @@
-import {versionMajorMinor} from "../core/core";
+import { versionMajorMinor } from "./ns";
 export function execute() {
     console.log(versionMajorMinor);
 }

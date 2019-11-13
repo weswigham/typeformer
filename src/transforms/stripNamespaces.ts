@@ -1,6 +1,7 @@
 import * as path from "path";
-import { createExportDeclaration, createIdentifier, createImportClause, createImportDeclaration, createLiteral, createNamespaceImport, createNode, createNodeArray, createStringLiteral, createToken, ExportDeclaration, idText, isModuleBlock, isModuleDeclaration, isPropertyAssignment, isStringLiteral, Node, NodeFlags, Program, SourceFile, Statement, SyntaxKind, TransformationContext, TypeChecker, updateSourceFileNode, visitEachChild, visitNodes, VisitResult, isArrayLiteralExpression, updatePropertyAssignment, updateArrayLiteral, LiteralExpression, StringLiteral } from "typescript";
+import { createExportDeclaration, createIdentifier, createImportClause, createImportDeclaration, createLiteral, createNamespaceImport, createNode, createNodeArray, createStringLiteral, createToken, ExportDeclaration, idText, isModuleBlock, isModuleDeclaration, isPropertyAssignment, isStringLiteral, Node, NodeFlags, Program, SourceFile, Statement, SyntaxKind, TransformationContext, TypeChecker, updateSourceFileNode, visitEachChild, visitNodes, VisitResult, isArrayLiteralExpression, updatePropertyAssignment, updateArrayLiteral, LiteralExpression, StringLiteral, isExpressionStatement, isParenthesizedExpression, ExpressionStatement, ParenthesizedExpression } from "typescript";
 import { ProjectTransformerConfig } from "..";
+import { removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
 
 class NormalizedPathMap<T> extends Map<string, T> {
     has(key: string) {
@@ -86,7 +87,12 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
         return transformSourceFile;
         function transformSourceFile(file: SourceFile) {
             currentSourceFile = file;
-            return visitEachChild(file, visitElement, context);
+            const result = visitEachChild(file, visitElement, context);
+            // TODO: Fix TS itself so a json source file doesn't present an invalid AST that can't rountdrip thru the factory system without getting extraneous parenthesis added
+            if (result && isExpressionStatement(result.statements[0]) && isParenthesizedExpression((result.statements[0] as ExpressionStatement).expression)) {
+                (result.statements[0] as ExpressionStatement).expression = ((result.statements[0] as ExpressionStatement).expression as ParenthesizedExpression).expression;
+            }
+            return result;
         }
 
         function visitElement(node: Node): VisitResult<Node> {
@@ -132,7 +138,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
             function transformSourceFile(file: SourceFile) {
                 currentSourceFile = file;
                 const statements = visitNodes(file.statements, visitStatements);
-                return updateSourceFileNode(file, [...getRequiredImports(), ...statements]);
+                return updateSourceFileNode(file, removeUnusedNamespaceImports([...getRequiredImports(), ...statements]));
             }
     
             function getRequiredImports() {

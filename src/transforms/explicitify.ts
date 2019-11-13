@@ -15,7 +15,8 @@ import {
     TransformationContext,
     TypeChecker,
     visitEachChild,
-    VisitResult
+    VisitResult,
+    isVariableDeclaration
 } from "typescript";
 
 export function getExplicitifyTransformFactoryFactory() {
@@ -33,6 +34,20 @@ function getExplicitifyTransformFactory(checker: TypeChecker) {
             return visitEachChild(node, visitChildren, context);
         }
 
+        function isSomeDeclarationInLexicalScope(sym: Symbol, location: Node) {
+            return sym.declarations.some(d => {
+                // VariableDeclaration -> VariableDeclarationList -> VariableStatement -> containing declaration
+                const container = isVariableDeclaration(d) ? d.parent.parent.parent : d.parent;
+                let loc: Node | undefined = location;
+                while (loc = loc.parent) {
+                    if (loc === container) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+
         function visitChildren<T extends Node>(node: T): VisitResult<T> {
             // We narrow the identifiers we check down to just those which aren't the name of
             // a declaration and aren't the RHS of a property access or qualified name
@@ -42,7 +57,7 @@ function getExplicitifyTransformFactory(checker: TypeChecker) {
                 !(isQualifiedName(node.parent) && node.parent.right === node)) {
                 const sym = checker.getSymbolAtLocation(node);
                 const parent = sym && (sym as {parent?: Symbol}).parent;
-                if (parent && parent.declarations && parent.declarations.length && parent.declarations.some(isModuleDeclaration)) {
+                if (parent && parent.declarations && parent.declarations.length && parent.declarations.some(isModuleDeclaration) && !isSomeDeclarationInLexicalScope(sym!, node)) {
                     const newName = checker.symbolToEntityName(sym!, SymbolFlags.Namespace, sourceFile, NodeBuilderFlags.UseOnlyExternalAliasing);
                     if (newName && !isIdentifier(newName)) {
                         if (isQualifiedName(node.parent) || isTypeReferenceNode(node.parent) || isTypeQueryNode(node.parent)) {

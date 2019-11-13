@@ -1,13 +1,14 @@
 {
     "extends": "../tsconfig-noncomposite-base",
     "compilerOptions": {
-        "outFile": "../../output/cli.js"
+        "outDir": "../../output/cli"
     },
     "files": [
         "helpers.ts",
-        "cli.ts"
+        "cli.ts",
+        "./ns.ts"
     ],
     "references": [
-        { "path": "../core", "prepend": true }
+        { "path": "../core" }
     ]
 }

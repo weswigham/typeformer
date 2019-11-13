@@ -1,4 +1,4 @@
-import {versionMajorMinor} from "../core/core";
+import { versionMajorMinor } from "./ns";
 export function getVersion() {
     return versionMajorMinor;
 }
