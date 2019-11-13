@@ -2,6 +2,7 @@ import * as path from "path";
 import { createExportDeclaration, createIdentifier, createImportClause, createImportDeclaration, createLiteral, createNamespaceImport, createNode, createNodeArray, createStringLiteral, createToken, ExportDeclaration, idText, isModuleBlock, isModuleDeclaration, isPropertyAssignment, isStringLiteral, Node, NodeFlags, Program, SourceFile, Statement, SyntaxKind, TransformationContext, TypeChecker, updateSourceFileNode, visitEachChild, visitNodes, VisitResult, isArrayLiteralExpression, updatePropertyAssignment, updateArrayLiteral, LiteralExpression, StringLiteral, isExpressionStatement, isParenthesizedExpression, ExpressionStatement, ParenthesizedExpression } from "typescript";
 import { ProjectTransformerConfig } from "..";
 import { removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
+import * as ts from "typescript";
 
 class NormalizedPathMap<T> extends Map<string, T> {
     has(key: string) {
@@ -169,7 +170,19 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     requiredImports.add(idText(nsPath[0]));
                     const nsFilePath = `${projRootDir}/${nsPath.map(idText).join(".")}.ts`;
                     getOrCreateNamespaceSet({ namespaceFilePath: nsFilePath, configFilePath: configPath }).add(currentSourceFile.fileName);
-                    return body.statements.slice();
+                    const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
+                    if (isInternal) {
+                        return body.statements.map(s => ts.setSyntheticLeadingComments(s, [{
+                            kind: SyntaxKind.MultiLineCommentTrivia,
+                            pos: -1,
+                            end: -1,
+                            text: " @internal ",
+                            hasTrailingNewLine: true
+                        }]));
+                    }
+                    else {
+                        return body.statements.slice();
+                    }
                 }
     
                 return statement;
