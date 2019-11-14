@@ -41,7 +41,10 @@ export type ProgramTransformerFactory = (checker: TypeChecker, program: ts.Progr
  */
 export function transformProject(rootConfig: string, outDir: string, getTransformerFactoryFactory: ProjectTransformerFactory) {
     const projDir = path.dirname(rootConfig);
-    const host = createSolutionBuilderHost(sys);
+    const buildDiags: Diagnostic[] = [];
+    const host = createSolutionBuilderHost(sys, /*createProgram*/ undefined, diag => {
+        buildDiags.push(diag);
+    });
     const allConfigFiles = new Set<string>([rootConfig]);
     // we just want to (ab)use the builder API to traverse the project reference graph
     // and find all source files we need to transform, so we override the `createProgram`
@@ -85,6 +88,16 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
 
     // Building will now trigger phase 1 - making every namespace member reference explicit
     solution.build();
+    if (buildDiags.length) {
+        const formatHost = {
+            getCanonicalFileName(s: string) { return s; },
+            getNewLine() { return "\n"; },
+            getCurrentDirectory() { return projDir; }
+        }
+        throw new Error(`Diagnostics reported during build!:
+        
+        ${buildDiags.map(d => formatDiagnostic(d, formatHost)).join("\n")}`);
+    }
 
     // Copy config files to output
     allConfigFiles.forEach(f => {
