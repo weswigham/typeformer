@@ -12,10 +12,10 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@types/microsoft__typescript-etw": "^0.1.0",
-    "typescript": "^3.7.2"
+    "typescript": "next"
   },
   "devDependencies": {
+    "@types/microsoft__typescript-etw": "^0.1.0",
     "@types/jest": "^24.0.21",
     "@types/node": "^12.12.7",
     "dir-compare": "^1.8.0",

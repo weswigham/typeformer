@@ -5,7 +5,9 @@
     },
     "files": [
         "utils.ts",
-        "./ns.ts"
+        "alsonested.ts",
+        "./ns.ts",
+        "./ns.nested.ts"
     ],
     "references": [
         { "path": "../core" }

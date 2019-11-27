@@ -4,7 +4,8 @@
         "outFile": "../../output/library.js"
     },
     "files": [
-        "utils.ts"
+        "utils.ts",
+        "alsonested.ts"
     ],
     "references": [
         { "path": "../core", "prepend": true }

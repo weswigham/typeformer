@@ -16,7 +16,10 @@ import {
     TypeChecker,
     visitEachChild,
     VisitResult,
-    isVariableDeclaration
+    isVariableDeclaration,
+    isImportTypeNode,
+    visitNodes,
+    updateImportTypeNode
 } from "typescript";
 
 export function getExplicitifyTransformFactoryFactory() {
@@ -49,6 +52,14 @@ function getExplicitifyTransformFactory(checker: TypeChecker) {
         }
 
         function visitChildren<T extends Node>(node: T): VisitResult<T> {
+            // Skip the `M` in `import("mod").M.N` - it's already fully qualified
+            if (isImportTypeNode(node)) {
+                const ta = visitNodes(node.typeArguments, visitChildren);
+                if (node.typeArguments !== ta) {
+                    return updateImportTypeNode(node, node.argument, node.qualifier, ta, node.isTypeOf) as Node as VisitResult<T>;
+                }
+                return node;
+            }
             // We narrow the identifiers we check down to just those which aren't the name of
             // a declaration and aren't the RHS of a property access or qualified name
             if (isIdentifier(node) &&

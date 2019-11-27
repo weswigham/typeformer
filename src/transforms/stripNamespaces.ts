@@ -49,7 +49,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
     function createSourceFilesForMap(map: typeof newNamespaceFiles) {
         const results: SourceFile[] = [];
         map.forEach((reexports, filename) => {
-            const reexportStatements: ExportDeclaration[] = [];
+            const reexportStatements: (ExportDeclaration | ts.ImportDeclaration)[] = [];
             const associatedConfig = [...extraFilesFieldMembers.entries()].find(([_, addedFiles]) => addedFiles.has(filename))![0];
             const dependentPaths = configDeps.get(associatedConfig);
             if (dependentPaths && dependentPaths.size) {
@@ -72,6 +72,27 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     /*namedExports*/ undefined,
                     createStringLiteral(getTSStyleRelativePath(filename, exportingPath).replace(".ts", ""))
                 ));
+            });
+            const partsThis = path.basename(filename).slice(0, path.basename(filename).length - path.extname(filename).length).split(".");
+            const currentNSName = partsThis.join(".");
+            map.forEach((_, otherFilename) => {
+                if (otherFilename !== filename && path.dirname(filename) === path.dirname(otherFilename)) {
+                    const partsOther = path.basename(otherFilename).slice(0, path.basename(otherFilename).length - path.extname(otherFilename).length).split(".");
+                    const otherNSParent = partsOther.slice(0, partsOther.length - 1).join(".");
+                    if (otherNSParent && otherNSParent === currentNSName) {
+                        reexportStatements.push(createImportDeclaration(
+                            /*decorators*/ undefined,
+                            /*modifiers*/ undefined,
+                            createImportClause(/*name*/ undefined, ts.createNamespaceImport(createIdentifier(partsOther[partsOther.length - 1]))),
+                            createStringLiteral(getTSStyleRelativePath(filename, otherFilename).replace(".ts", ""))
+                        ))
+                        reexportStatements.push(createExportDeclaration(
+                            /*decorators*/ undefined,
+                            /*modifiers*/ undefined,
+                            ts.createNamedExports([ts.createExportSpecifier(/*propertyName*/ undefined, partsOther[partsOther.length - 1])])
+                        ));
+                    }
+                }
             });
             const newSource = createNode(SyntaxKind.SourceFile, -1, -1) as SourceFile; // There's no SourceFile factory, so this is what we get
             newSource.flags |= NodeFlags.Synthesized;

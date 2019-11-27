@@ -5,6 +5,8 @@
     },
     "files": [
         "core.ts",
-        "./ns.ts"
+        "nestedns.ts",
+        "./ns.ts",
+        "./ns.nested.ts"
     ]
 }
