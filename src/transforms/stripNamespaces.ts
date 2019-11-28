@@ -191,6 +191,11 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     requiredImports.add(idText(nsPath[0]));
                     const nsFilePath = `${projRootDir}/${nsPath.map(idText).join(".")}.ts`;
                     getOrCreateNamespaceSet({ namespaceFilePath: nsFilePath, configFilePath: configPath }).add(currentSourceFile.fileName);
+                    for (let i = 1; i < nsPath.length; i++) {
+                        const parentNsFile = `${projRootDir}/${nsPath.map(idText).slice(0, i).join(".")}.ts`;
+                        getOrCreateNamespaceSet({ namespaceFilePath: parentNsFile, configFilePath: configPath });
+                    }
+                    
                     const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
                     if (isInternal) {
                         return body.statements.map(s => ts.setSyntheticLeadingComments(s, [{
