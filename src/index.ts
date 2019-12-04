@@ -98,6 +98,7 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
         
         ${buildDiags.map(d => formatDiagnostic(d, formatHost)).join("\n")}`);
     }
+    solution.clean();
 
     // Copy config files to output
     allConfigFiles.forEach(f => {

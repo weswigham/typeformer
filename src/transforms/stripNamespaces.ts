@@ -152,6 +152,31 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
             configDeps.set(configPath, new Set(refs.map(r => r.path)));
         }
         const projRootDir = path.dirname(configPath);
+        interface DocumentPosition {
+            fileName: string;
+            pos: number;
+        }
+        let sourceMapper: {
+            toLineColumnOffset(fileName: string, position: number): {
+                /** 0-based. */
+                line: number;
+                /*
+                 * 0-based. This value denotes the character position in line and is different from the 'column' because of tab characters.
+                 */
+                character: number;
+            };
+            tryGetSourcePosition(info: DocumentPosition): DocumentPosition | undefined;
+            tryGetGeneratedPosition(info: DocumentPosition): DocumentPosition | undefined;
+            clearCache(): void;
+        } | undefined;
+        const getSourceMapper = () => sourceMapper || (sourceMapper = (ts as any).getSourceMapper({
+            useCaseSensitiveFileNames() { return ts.sys.useCaseSensitiveFileNames; },
+            getCurrentDirectory() { return program.getCurrentDirectory() },
+            getProgram() { return program; },
+            fileExists: ts.sys.fileExists,
+            readFile: ts.sys.readFile,
+            log: (_log: string) => void 0,
+        }));
         return stripNamespaces;
         function stripNamespaces(context: TransformationContext) {
             const requiredImports = new Set<string>();
@@ -197,20 +222,42 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     }
                     
                     const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
-                    if (isInternal) {
-                        return body.statements.map(s => ts.setSyntheticLeadingComments(s, [{
-                            kind: SyntaxKind.MultiLineCommentTrivia,
-                            pos: -1,
-                            end: -1,
-                            text: " @internal ",
-                            hasTrailingNewLine: true
-                        }]));
-                    }
-                    else {
-                        return body.statements.slice();
-                    }
+                    return body.statements.map(s => visitStatement(s, isInternal));
                 }
     
+                return statement;
+            }
+
+            function visitStatement(statement: Statement, isInternal: boolean) {
+                // If the statement is an interface and that interface is an augmentation of an interface in another file
+                // rewrite it into a module augmentation so that augmentation actually takes place
+                if (ts.isInterfaceDeclaration(statement)) {
+                    const sym = checker.getSymbolAtLocation(ts.getNameOfDeclaration(statement) || statement)!;
+                    if (sym.declarations.length > 1 &&
+                        !sym.declarations.every(d => d.getSourceFile() === sym.declarations[0].getSourceFile()) &&
+                        statement !== sym.declarations[0]) {
+                        const sourceMappedOriginalLocation = getSourceMapper().tryGetSourcePosition({
+                            fileName: sym.declarations[0].getSourceFile().fileName,
+                            pos: sym.declarations[0].pos
+                        });
+                        const targetFilename = sourceMappedOriginalLocation ? sourceMappedOriginalLocation.fileName : sym.declarations[0].getSourceFile().fileName;
+                        statement = ts.createModuleDeclaration(
+                            /*decorators*/ undefined,
+                            [createToken(SyntaxKind.DeclareKeyword)],
+                            createLiteral(getTSStyleRelativePath(currentSourceFile.fileName, targetFilename.replace(/(\.d)?\.ts$/, ""))),
+                            ts.createModuleBlock([statement])
+                        );
+                    }
+                }
+                if (isInternal) {
+                    ts.setSyntheticLeadingComments(statement, [{
+                        kind: SyntaxKind.MultiLineCommentTrivia,
+                        pos: -1,
+                        end: -1,
+                        text: " @internal ",
+                        hasTrailingNewLine: true
+                    }]);
+                }
                 return statement;
             }
         }
