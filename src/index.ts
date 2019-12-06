@@ -189,3 +189,9 @@ export function transformProjectFromNamespacesToModules(rootConfig: string, outD
     // 3. Inline Imports
     transformProject(outDir+"_stage2/tsconfig.json", outDir, getInlineImportsTransformFactoryFactory);
 }
+
+export function transformProjectInPlace(config: string) {
+    transformProject(config, path.dirname(config), getExplicitifyTransformFactoryFactory);
+    transformProject(config, path.dirname(config), getStripNamespacesTransformFactoryFactory);
+    transformProject(config, path.dirname(config), getInlineImportsTransformFactoryFactory);
+}

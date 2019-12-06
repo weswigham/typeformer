@@ -3,6 +3,9 @@
   "version": "0.0.1",
   "description": "Transforms a project of namespaces into a project of modules exporting a similar top-level structure",
   "main": "lib/index.js",
+  "bin": {
+    "typeform": "lib/cli.js"
+  },
   "scripts": {
     "build": "tsc -p ./",
     "watch": "tsc --watch",
