@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { transformProjectInPlace } from ".";
 import { existsSync } from "fs";
 import { resolve } from "path";
