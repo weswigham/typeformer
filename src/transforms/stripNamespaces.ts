@@ -4,24 +4,28 @@ import { ProjectTransformerConfig } from "..";
 import { removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
 import * as ts from "typescript";
 
+function normalizePath(p: string) {
+    return ts.sys.useCaseSensitiveFileNames ? path.normalize(p).toLowerCase() : path.normalize(p);
+}
+
 class NormalizedPathMap<T> extends Map<string, T> {
     has(key: string) {
-        return super.has(path.normalize(key));
+        return super.has(normalizePath(key));
     }
     get(key: string) {
-        return super.get(path.normalize(key));
+        return super.get(normalizePath(key));
     }
     set(key: string, value: T) {
-        return super.set(path.normalize(key), value);
+        return super.set(normalizePath(key), value);
     }
 }
 
 class NormalizedPathSet extends Set<string> {
     add(key: string) {
-        return super.add(path.normalize(key));
+        return super.add(normalizePath(key));
     }
     has(key: string) {
-        return super.has(path.normalize(key));
+        return super.has(normalizePath(key));
     }
 }
 
@@ -60,7 +64,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                             /*decorators*/ undefined,
                             /*modifiers*/ undefined,
                             /*namedExports*/ undefined,
-                            createStringLiteral(getTSStyleRelativePath(filename, nsFileName).replace(".ts", ""))
+                            createStringLiteral(getTSStyleRelativePath(filename, nsFileName).replace(/\.ts$/, ""))
                         ));
                     }
                 });
@@ -70,7 +74,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     /*decorators*/ undefined,
                     /*modifiers*/ undefined,
                     /*namedExports*/ undefined,
-                    createStringLiteral(getTSStyleRelativePath(filename, exportingPath).replace(".ts", ""))
+                    createStringLiteral(getTSStyleRelativePath(filename, exportingPath).replace(/\.ts$/, ""))
                 ));
             });
             const partsThis = path.basename(filename).slice(0, path.basename(filename).length - path.extname(filename).length).split(".");
@@ -84,7 +88,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                             /*decorators*/ undefined,
                             /*modifiers*/ undefined,
                             createImportClause(/*name*/ undefined, ts.createNamespaceImport(createIdentifier(partsOther[partsOther.length - 1]))),
-                            createStringLiteral(getTSStyleRelativePath(filename, otherFilename).replace(".ts", ""))
+                            createStringLiteral(getTSStyleRelativePath(filename, otherFilename).replace(/\.ts$/, ""))
                         ))
                         reexportStatements.push(createExportDeclaration(
                             /*decorators*/ undefined,
@@ -184,8 +188,16 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
             return transformSourceFile;
             function transformSourceFile(file: SourceFile) {
                 currentSourceFile = file;
+                requiredImports.clear();
                 const statements = visitNodes(file.statements, visitStatements);
-                return updateSourceFileNode(file, removeUnusedNamespaceImports([...getRequiredImports(), ...statements]));
+                const result = removeUnusedNamespaceImports([...getRequiredImports(), ...statements]);
+                // So the output is guaranteed to be a module, if we'd otherwise emit an empty file, emit `export {}`
+                // (We'll go back and clean those up later)
+                return updateSourceFileNode(file, result.length === 0 ? [createExportDeclaration(
+                    /*decorators*/ undefined,
+                    /*modifiers*/ undefined,
+                    ts.createNamedExports([]),
+                )] : result);
             }
     
             function getRequiredImports() {
@@ -200,6 +212,26 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     ))
                 });
                 return importStatements;
+            }
+
+            function visitIdentifiers<T extends Node>(node: T): T {
+                if (ts.isIdentifier(node) &&
+                    ts.getNameOfDeclaration(node.parent as ts.Declaration) !== node &&
+                    !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
+                    !(ts.isQualifiedName(node.parent) && node.parent.right === node)
+                ) {
+                    const s = checker.getSymbolAtLocation(node);
+                    if (s && s.declarations && s.declarations.some(d => isModuleDeclaration(d) && !!(d.flags & NodeFlags.Namespace))
+                        && s.declarations.some(d => d.getSourceFile() !== currentSourceFile) // only namespaces external to the current file
+                        && !s.declarations.some(d => d.getSourceFile().fileName.indexOf("lib.") !== -1) // that are not from the `lib`
+                        && !s.declarations.some(d => d.getSourceFile().fileName.indexOf("node_modules") !== -1) // that are not from `node_modules`
+                        && !s.declarations.some(d => d.kind === SyntaxKind.ClassDeclaration) // and nothing that's a class (we can't faithfully repreoduce class/ns merges anyway, so it's easy to toss these)
+                    ) {
+                        const nsName = checker.symbolToString(s);
+                        requiredImports.add(nsName);
+                    }
+                }
+                return visitEachChild(node, visitIdentifiers, context);
             }
     
             function visitStatements(statement: Node): VisitResult<Node> {
@@ -220,15 +252,16 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                         const parentNsFile = `${projRootDir}/${nsPath.map(idText).slice(0, i).join(".")}.ts`;
                         getOrCreateNamespaceSet({ namespaceFilePath: parentNsFile, configFilePath: configPath });
                     }
-                    
+
                     const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
                     return body.statements.map(s => visitStatement(s, isInternal));
                 }
     
-                return statement;
+                return visitGlobalishStatement(statement);
             }
 
-            function visitStatement(statement: Statement, isInternal: boolean) {
+            function visitStatement(statement: Node, isInternal: boolean) {
+                statement = visitIdentifiers(statement);
                 // If the statement is an interface and that interface is an augmentation of an interface in another file
                 // rewrite it into a module augmentation so that augmentation actually takes place
                 if (ts.isInterfaceDeclaration(statement)) {
@@ -257,6 +290,47 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                         text: " @internal ",
                         hasTrailingNewLine: true
                     }]);
+                }
+                return statement;
+            }
+
+            function visitGlobalishStatement(statement: Node): VisitResult<Node> {
+                statement = visitIdentifiers(statement);
+                if (ts.isInterfaceDeclaration(statement) || ts.isVariableStatement(statement)) {
+                    const sym = checker.getSymbolAtLocation(ts.getNameOfDeclaration(ts.isVariableStatement(statement) ? statement.declarationList.declarations[0] : statement) || statement)!;
+                    const isMerged = sym.declarations.length > 1 && !sym.declarations.every(d => d.getSourceFile() === sym.declarations[0].getSourceFile());
+                    const isAmbient = statement.modifiers && statement.modifiers.some(m => m.kind === SyntaxKind.DeclareKeyword);
+                    if (isMerged || isAmbient) {
+                        // Global interface/declaration - preserve globality
+                        // TODO: Check if declaration is non-ambient, if so, use global augmentation to produce global value
+                        // and rewrite implementation to rely on `globalThis` (if needed)
+                        const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
+                        statement = ts.createModuleDeclaration(
+                            /*decorators*/ undefined,
+                            [createToken(SyntaxKind.DeclareKeyword)],
+                            createIdentifier("global"),
+                            ts.createModuleBlock([stripDeclare(statement)]),
+                            ts.NodeFlags.GlobalAugmentation
+                        );
+                        if (isInternal) {
+                            ts.setSyntheticLeadingComments(statement, [{
+                                kind: SyntaxKind.MultiLineCommentTrivia,
+                                pos: -1,
+                                end: -1,
+                                text: " @internal ",
+                                hasTrailingNewLine: true
+                            }]);
+                        }
+                    }
+                }
+                return statement;
+            }
+
+            function stripDeclare<T extends Node>(statement: T): T {
+                if (statement.modifiers && statement.modifiers.some(m => m.kind === SyntaxKind.DeclareKeyword)) {
+                    const clone = (ts as any).getSynthesizedClone(statement);
+                    clone.modifiers = clone.modifiers.filter((m: Node) => m.kind !== SyntaxKind.DeclareKeyword);
+                    return ts.setTextRange(clone, statement);
                 }
                 return statement;
             }

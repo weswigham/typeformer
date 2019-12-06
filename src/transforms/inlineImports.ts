@@ -1,4 +1,4 @@
-import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier } from "typescript";
+import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier, isImportEqualsDeclaration } from "typescript";
 import { getNamespaceImports, removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
 
 export function getInlineImportsTransformFactoryFactory() {
@@ -27,7 +27,7 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                     createLiteral(specifier)
                 ));
             });
-            return updateSourceFileNode(file, removeUnusedNamespaceImports([...newImportStatements, ...statements]));
+            return updateSourceFileNode(file, removeUnusedNamespaceImports([...newImportStatements, ...statements], true));
 
             function visitIdentifiers(node: Node): VisitResult<Node> {
                 if (isImportDeclaration(node)) {
@@ -37,6 +37,9 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                 let rhsName: string | undefined;
                 let possibleSubstitute: Identifier | undefined;
                 if (isQualifiedName(node) && isIdentifier(node.left)) {
+                    if (isImportEqualsDeclaration(node.parent) && node.parent.moduleReference === node) {
+                        return node; // Can't elide the namespace part of an import assignment
+                    }
                     s = checker.getSymbolAtLocation(node.left);
                     rhsName = idText(node.right);
                     possibleSubstitute = node.right;
@@ -52,12 +55,11 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                     // `Symbol` and `Node`, instead. We want to be capable of inlining them we they don't force us to keep
                     // `ts.Symbol` and the `import * as ts` import around.
                     const shouldExcludeGlobals = rhsName === "Symbol" || rhsName === "Node";
-                    const bareName = checker.resolveName(rhsName, node, SymbolFlags.Type | SymbolFlags.Namespace, shouldExcludeGlobals);
+                    const bareName = checker.resolveName(rhsName, node, SymbolFlags.Type | SymbolFlags.Value | SymbolFlags.Namespace, shouldExcludeGlobals);
                     if (!bareName) {
                         // Only attempt to inline ns if the thing we're inlining to doesn't currently resolve (globals are OK, we'll over)
                         const matchingImport = imports.find(i => checker.getSymbolAtLocation(i.importClause.namedBindings.name) === s);
-                        if (matchingImport) {
-                            addSyntheticImport((matchingImport.moduleSpecifier as StringLiteral).text, rhsName);
+                        if (matchingImport && addSyntheticImport((matchingImport.moduleSpecifier as StringLiteral).text, rhsName)) {
                             return possibleSubstitute;
                         }
                     }
@@ -66,9 +68,14 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
             }
 
             function addSyntheticImport(specifier: string, importName: string) {
+                if (Array.from(syntheticImports.entries()).some(([spec, set]) => spec !== specifier && set.has(importName))) {
+                    // Import name already taken by a different import - gotta leave the second instance explicit
+                    return false;
+                }
                 const synthMap = syntheticImports.get(specifier) || new Set();
                 syntheticImports.set(specifier, synthMap);
                 synthMap.add(importName);
+                return true;
             }
         }
     }
