@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { transformProjectFromNamespacesToModules } from ".";
+import { transformProjectInPlace } from ".";
 import { existsSync } from "fs";
-import { resolve, dirname } from "path";
+import { resolve } from "path";
 
 const fileName = process.argv[2];
 if (!fileName || !existsSync(fileName)) {
@@ -9,4 +9,4 @@ if (!fileName || !existsSync(fileName)) {
     process.exit(1);
 }
 const configPath = resolve(process.cwd(), fileName);
-transformProjectFromNamespacesToModules(configPath, dirname(configPath)+"-new");
+transformProjectInPlace(configPath);

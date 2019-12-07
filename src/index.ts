@@ -16,6 +16,7 @@ import { getExplicitifyTransformFactoryFactory } from "./transforms/explicitify"
 import { getStripNamespacesTransformFactoryFactory } from "./transforms/stripNamespaces";
 import { getInlineImportsTransformFactoryFactory } from "./transforms/inlineImports";
 import ts = require("typescript");
+import mergeDirs from "merge-dirs";
 
 export interface ProjectTransformerConfig {
     onTransformConfigFile?: TransformerFactory<SourceFile>;
@@ -154,6 +155,7 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
             fs.mkdirSync(path.dirname(outPath), { recursive: true });
         }
         catch {}
+        console.log(`Writing ${outPath}`);
         fs.writeFileSync(outPath, content);
     }
 }
@@ -191,7 +193,12 @@ export function transformProjectFromNamespacesToModules(rootConfig: string, outD
 }
 
 export function transformProjectInPlace(config: string) {
-    transformProject(config, path.dirname(config), getExplicitifyTransformFactoryFactory);
-    transformProject(config, path.dirname(config), getStripNamespacesTransformFactoryFactory);
-    transformProject(config, path.dirname(config), getInlineImportsTransformFactoryFactory);
+    const tmpdir = path.dirname(config)+"tmp";
+    transformProject(config, tmpdir, getExplicitifyTransformFactoryFactory);
+    mergeDirs(tmpdir, path.dirname(config), "overwrite");
+    transformProject(config, tmpdir, getStripNamespacesTransformFactoryFactory);
+    mergeDirs(tmpdir, path.dirname(config), "overwrite");
+    transformProject(config, tmpdir, getInlineImportsTransformFactoryFactory);
+    mergeDirs(tmpdir, path.dirname(config), "overwrite");
+    fs.rmdirSync(tmpdir, {recursive: true});
 }

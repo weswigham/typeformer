@@ -15,6 +15,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "merge-dirs": "^0.2.1",
     "typescript": "next"
   },
   "devDependencies": {
