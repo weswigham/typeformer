@@ -124,7 +124,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
         function visitElement(node: Node): VisitResult<Node> {
             if (isPropertyAssignment(node) && isStringLiteral(node.name)) {
                 switch (node.name.text) {
-                    case "outFile": return updatePropertyAssignment(node, createStringLiteral("outDir"), createLiteral(((node.initializer as StringLiteral).text).replace(".js", "")));
+                    case "outFile": return updatePropertyAssignment(node, createStringLiteral("outDir"), createLiteral(path.join(path.dirname((node.initializer as StringLiteral).text), path.basename(path.dirname(currentSourceFile.fileName))).replace(/\\/g, "/")));
                     case "prepend": return undefined;
                     case "files": {
                         if (isArrayLiteralExpression(node.initializer) && extraFilesFieldMembers.has(currentSourceFile.fileName)) {
