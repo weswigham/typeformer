@@ -1,11 +1,12 @@
 import * as path from "path";
-import { createExportDeclaration, createIdentifier, createImportClause, createImportDeclaration, createLiteral, createNamespaceImport, createNode, createNodeArray, createStringLiteral, createToken, ExportDeclaration, idText, isModuleBlock, isModuleDeclaration, isPropertyAssignment, isStringLiteral, Node, NodeFlags, Program, SourceFile, Statement, SyntaxKind, TransformationContext, TypeChecker, updateSourceFileNode, visitEachChild, visitNodes, VisitResult, isArrayLiteralExpression, updatePropertyAssignment, updateArrayLiteral, LiteralExpression, StringLiteral, isExpressionStatement, isParenthesizedExpression, ExpressionStatement, ParenthesizedExpression } from "typescript";
+import { createExportDeclaration, createIdentifier, createImportClause, createImportDeclaration, createLiteral, createNamespaceImport, createNode, createNodeArray, createStringLiteral, createToken, ExportDeclaration, idText, isModuleBlock, isModuleDeclaration, isPropertyAssignment, isStringLiteral, Node, NodeFlags, Program, SourceFile, Statement, SyntaxKind, TransformationContext, TypeChecker, updateSourceFileNode, visitEachChild, visitNodes, VisitResult, isArrayLiteralExpression, updatePropertyAssignment, updateArrayLiteral, LiteralExpression, StringLiteral, isExpressionStatement, isParenthesizedExpression, ExpressionStatement, ParenthesizedExpression, ImportDeclaration, createNamedExports, createExportSpecifier, isIdentifier, getNameOfDeclaration, isPropertyAccessExpression, isQualifiedName, Declaration, isInterfaceDeclaration, createModuleDeclaration, createModuleBlock, setSyntheticLeadingComments, isVariableStatement, setTextRange, createEmptyStatement, setEmitFlags, EmitFlags, sys, createNotEmittedStatement, getLeadingCommentRanges, getTrailingCommentRanges, SynthesizedComment, setSyntheticTrailingComments, forEachLeadingCommentRange, CommentKind, addSyntheticLeadingComment, addSyntheticTrailingComment, forEachTrailingCommentRange } from "typescript";
 import { ProjectTransformerConfig } from "..";
 import { removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
+import { getTSStyleRelativePath } from "./pathUtil";
 import * as ts from "typescript";
 
 function normalizePath(p: string) {
-    return ts.sys.useCaseSensitiveFileNames ? path.normalize(p).toLowerCase() : path.normalize(p);
+    return sys.useCaseSensitiveFileNames ? path.normalize(p).toLowerCase() : path.normalize(p);
 }
 
 class NormalizedPathMap<T> extends Map<string, T> {
@@ -53,7 +54,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
     function createSourceFilesForMap(map: typeof newNamespaceFiles) {
         const results: SourceFile[] = [];
         map.forEach((reexports, filename) => {
-            const reexportStatements: (ExportDeclaration | ts.ImportDeclaration)[] = [];
+            const reexportStatements: (ExportDeclaration | ImportDeclaration)[] = [];
             const associatedConfig = [...extraFilesFieldMembers.entries()].find(([_, addedFiles]) => addedFiles.has(filename))![0];
             const dependentPaths = configDeps.get(associatedConfig);
             if (dependentPaths && dependentPaths.size) {
@@ -87,13 +88,13 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                         reexportStatements.push(createImportDeclaration(
                             /*decorators*/ undefined,
                             /*modifiers*/ undefined,
-                            createImportClause(/*name*/ undefined, ts.createNamespaceImport(createIdentifier(partsOther[partsOther.length - 1]))),
+                            createImportClause(/*name*/ undefined, createNamespaceImport(createIdentifier(partsOther[partsOther.length - 1]))),
                             createStringLiteral(getTSStyleRelativePath(filename, otherFilename).replace(/\.ts$/, ""))
-                        ))
+                        ));
                         reexportStatements.push(createExportDeclaration(
                             /*decorators*/ undefined,
                             /*modifiers*/ undefined,
-                            ts.createNamedExports([ts.createExportSpecifier(/*propertyName*/ undefined, partsOther[partsOther.length - 1])])
+                            createNamedExports([createExportSpecifier(/*propertyName*/ undefined, partsOther[partsOther.length - 1])])
                         ));
                     }
                 }
@@ -124,7 +125,12 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
         function visitElement(node: Node): VisitResult<Node> {
             if (isPropertyAssignment(node) && isStringLiteral(node.name)) {
                 switch (node.name.text) {
-                    case "outFile": return updatePropertyAssignment(node, createStringLiteral("outDir"), createLiteral(path.join(path.dirname((node.initializer as StringLiteral).text), path.basename(path.dirname(currentSourceFile.fileName))).replace(/\\/g, "/")));
+                    case "outFile": {
+                        const baseDir = path.basename(currentSourceFile.fileName).includes(".release.")
+                            ? path.dirname((node.initializer as StringLiteral).text).replace("local", "local/release")
+                            : path.dirname((node.initializer as StringLiteral).text);
+                        return updatePropertyAssignment(node, createStringLiteral("outDir"), createLiteral(baseDir.replace(/\\/g, "/")));
+                    }
                     case "prepend": return undefined;
                     case "files": {
                         if (isArrayLiteralExpression(node.initializer) && extraFilesFieldMembers.has(currentSourceFile.fileName)) {
@@ -174,11 +180,11 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
             clearCache(): void;
         } | undefined;
         const getSourceMapper = () => sourceMapper || (sourceMapper = (ts as any).getSourceMapper({
-            useCaseSensitiveFileNames() { return ts.sys.useCaseSensitiveFileNames; },
+            useCaseSensitiveFileNames() { return sys.useCaseSensitiveFileNames; },
             getCurrentDirectory() { return program.getCurrentDirectory() },
             getProgram() { return program; },
-            fileExists: ts.sys.fileExists,
-            readFile: ts.sys.readFile,
+            fileExists: sys.fileExists,
+            readFile: sys.readFile,
             log: (_log: string) => void 0,
         }));
         return stripNamespaces;
@@ -190,7 +196,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                 currentSourceFile = file;
                 requiredImports.clear();
                 const statements = visitNodes(file.statements, visitStatements);
-                const result = removeUnusedNamespaceImports([...getRequiredImports(), ...statements]);
+                const result = setTextRange(createNodeArray(removeUnusedNamespaceImports([...getRequiredImports(), ...statements])), file.statements);
                 // So the output is guaranteed to be a module, if we'd otherwise emit an empty file, emit `export {}`
                 // (We'll go back and clean those up later)
                 return updateSourceFileNode(file, result.length === 0 ? [createExportDeclaration(
@@ -215,10 +221,10 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
             }
 
             function visitIdentifiers<T extends Node>(node: T): T {
-                if (ts.isIdentifier(node) &&
-                    ts.getNameOfDeclaration(node.parent as ts.Declaration) !== node &&
-                    !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
-                    !(ts.isQualifiedName(node.parent) && node.parent.right === node)
+                if (isIdentifier(node) &&
+                    getNameOfDeclaration(node.parent as Declaration) !== node &&
+                    !(isPropertyAccessExpression(node.parent) && node.parent.name === node) &&
+                    !(isQualifiedName(node.parent) && node.parent.right === node)
                 ) {
                     const s = checker.getSymbolAtLocation(node);
                     if (s && s.declarations && s.declarations.some(d => isModuleDeclaration(d) && !!(d.flags & NodeFlags.Namespace))
@@ -234,8 +240,37 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                 return visitEachChild(node, visitIdentifiers, context);
             }
     
+            function copyLeadingComments(targetNode: Node, pos: number, sourceFile: SourceFile, commentKind?: CommentKind, hasTrailingNewLine?: boolean) {
+                forEachLeadingCommentRange(sourceFile.text, pos, getAddCommentsFunction(targetNode, sourceFile, commentKind, hasTrailingNewLine, addSyntheticLeadingComment));
+                return targetNode;
+            }
+        
+        
+            function copyTrailingComments(targetNode: Node, pos: number, sourceFile: SourceFile, commentKind?: CommentKind, hasTrailingNewLine?: boolean) {
+                forEachTrailingCommentRange(sourceFile.text, pos, getAddCommentsFunction(targetNode, sourceFile, commentKind, hasTrailingNewLine, addSyntheticTrailingComment));
+                return targetNode;
+            }
+
+
+            function getAddCommentsFunction(targetNode: Node, sourceFile: SourceFile, commentKind: CommentKind | undefined, hasTrailingNewLine: boolean | undefined, cb: (node: Node, kind: CommentKind, text: string, hasTrailingNewLine?: boolean) => void) {
+                return (pos: number, end: number, kind: CommentKind, htnl: boolean) => {
+                    if (kind === SyntaxKind.MultiLineCommentTrivia) {
+                        // Remove leading /*
+                        pos += 2;
+                        // Remove trailing */
+                        end -= 2;
+                    }
+                    else {
+                        // Remove leading //
+                        pos += 2;
+                    }
+                    cb(targetNode, commentKind || kind, sourceFile.text.slice(pos, end), hasTrailingNewLine !== undefined ? hasTrailingNewLine : htnl);
+                };
+            }
+
             function visitStatements(statement: Node): VisitResult<Node> {
                 if (isModuleDeclaration(statement) && !isStringLiteral(statement.name) && statement.body) {
+                    const originalStatement = statement;
                     let body = statement.body;
                     let nsPath = [statement.name];
                     while (isModuleDeclaration(body) && body.body) {
@@ -254,7 +289,18 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                     }
 
                     const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
-                    return body.statements.map(s => visitStatement(s, isInternal));
+                    const replacement = body.statements.map((s, i) => visitStatement(s, isInternal && i !== 0));
+                    if (replacement.length) {
+                        return [
+                            copyLeadingComments(createNotEmittedStatement(originalStatement), originalStatement.pos, currentSourceFile),
+                            ...replacement,
+                            copyTrailingComments(createNotEmittedStatement(originalStatement), originalStatement.end, currentSourceFile),
+                        ];
+                    }
+                    const placeholder = createNotEmittedStatement(originalStatement);
+                    copyLeadingComments(placeholder, originalStatement.pos, currentSourceFile);
+                    copyTrailingComments(placeholder, originalStatement.end, currentSourceFile);
+                    return placeholder;
                 }
     
                 return visitGlobalishStatement(statement);
@@ -264,8 +310,8 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                 statement = visitIdentifiers(statement);
                 // If the statement is an interface and that interface is an augmentation of an interface in another file
                 // rewrite it into a module augmentation so that augmentation actually takes place
-                if (ts.isInterfaceDeclaration(statement)) {
-                    const sym = checker.getSymbolAtLocation(ts.getNameOfDeclaration(statement) || statement)!;
+                if (isInterfaceDeclaration(statement)) {
+                    const sym = checker.getSymbolAtLocation(getNameOfDeclaration(statement) || statement)!;
                     if (sym.declarations.length > 1 &&
                         !sym.declarations.every(d => d.getSourceFile() === sym.declarations[0].getSourceFile()) &&
                         statement !== sym.declarations[0]) {
@@ -274,16 +320,16 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                             pos: sym.declarations[0].pos
                         });
                         const targetFilename = sourceMappedOriginalLocation ? sourceMappedOriginalLocation.fileName : sym.declarations[0].getSourceFile().fileName;
-                        statement = ts.createModuleDeclaration(
+                        statement = createModuleDeclaration(
                             /*decorators*/ undefined,
                             [createToken(SyntaxKind.DeclareKeyword)],
                             createLiteral(getTSStyleRelativePath(currentSourceFile.fileName, targetFilename.replace(/(\.d)?\.ts$/, ""))),
-                            ts.createModuleBlock([statement])
+                            createModuleBlock([statement])
                         );
                     }
                 }
                 if (isInternal) {
-                    ts.setSyntheticLeadingComments(statement, [{
+                    setSyntheticLeadingComments(statement, [{
                         kind: SyntaxKind.MultiLineCommentTrivia,
                         pos: -1,
                         end: -1,
@@ -296,8 +342,8 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
 
             function visitGlobalishStatement(statement: Node): VisitResult<Node> {
                 statement = visitIdentifiers(statement);
-                if (ts.isInterfaceDeclaration(statement) || ts.isVariableStatement(statement)) {
-                    const sym = checker.getSymbolAtLocation(ts.getNameOfDeclaration(ts.isVariableStatement(statement) ? statement.declarationList.declarations[0] : statement) || statement)!;
+                if (isInterfaceDeclaration(statement) || isVariableStatement(statement)) {
+                    const sym = checker.getSymbolAtLocation(getNameOfDeclaration(isVariableStatement(statement) ? statement.declarationList.declarations[0] : statement) || statement)!;
                     const isMerged = sym.declarations.length > 1 && !sym.declarations.every(d => d.getSourceFile() === sym.declarations[0].getSourceFile());
                     const isAmbient = statement.modifiers && statement.modifiers.some(m => m.kind === SyntaxKind.DeclareKeyword);
                     if (isMerged || isAmbient) {
@@ -305,15 +351,15 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                         // TODO: Check if declaration is non-ambient, if so, use global augmentation to produce global value
                         // and rewrite implementation to rely on `globalThis` (if needed)
                         const isInternal = (ts as any as { isInternalDeclaration(node: Node, currentSourceFile: SourceFile): boolean }).isInternalDeclaration(statement, currentSourceFile);
-                        statement = ts.createModuleDeclaration(
+                        statement = createModuleDeclaration(
                             /*decorators*/ undefined,
                             [createToken(SyntaxKind.DeclareKeyword)],
                             createIdentifier("global"),
-                            ts.createModuleBlock([stripDeclare(statement)]),
-                            ts.NodeFlags.GlobalAugmentation
+                            createModuleBlock([stripDeclare(statement)]),
+                            NodeFlags.GlobalAugmentation
                         );
                         if (isInternal) {
-                            ts.setSyntheticLeadingComments(statement, [{
+                            setSyntheticLeadingComments(statement, [{
                                 kind: SyntaxKind.MultiLineCommentTrivia,
                                 pos: -1,
                                 end: -1,
@@ -330,7 +376,7 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                 if (statement.modifiers && statement.modifiers.some(m => m.kind === SyntaxKind.DeclareKeyword)) {
                     const clone = (ts as any).getSynthesizedClone(statement);
                     clone.modifiers = clone.modifiers.filter((m: Node) => m.kind !== SyntaxKind.DeclareKeyword);
-                    return ts.setTextRange(clone, statement);
+                    return setTextRange(clone, statement);
                 }
                 return statement;
             }
@@ -355,12 +401,4 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
         configRes.add(namespaceFilePath);
         return s;
     }
-}
-
-function getTSStyleRelativePath(from: string, to: string) {
-    let result = path.normalize(path.relative(path.dirname(from), to));
-    if (!result.startsWith(".")) {
-        result = `./${result}`;
-    }
-    return result.replace(/\\/g, "/");
 }

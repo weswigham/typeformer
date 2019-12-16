@@ -1,5 +1,6 @@
-import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier, isImportEqualsDeclaration } from "typescript";
+import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier, isImportEqualsDeclaration, isSourceFile, createNodeArray, setTextRange } from "typescript";
 import { getNamespaceImports, removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
+import { getTSStyleRelativePath } from "./pathUtil";
 
 export function getInlineImportsTransformFactoryFactory() {
     return getInlineImportsTransformFactory;
@@ -27,7 +28,8 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                     createLiteral(specifier)
                 ));
             });
-            return updateSourceFileNode(file, removeUnusedNamespaceImports([...newImportStatements, ...statements], true));
+            const minimizedStatements = setTextRange(createNodeArray(removeUnusedNamespaceImports([...newImportStatements, ...statements], true)), file.statements);
+            return updateSourceFileNode(file, minimizedStatements);
 
             function visitIdentifiers(node: Node): VisitResult<Node> {
                 if (isImportDeclaration(node)) {
@@ -36,16 +38,16 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                 let s: Symbol | undefined;
                 let rhsName: string | undefined;
                 let possibleSubstitute: Identifier | undefined;
-                if (isQualifiedName(node) && isIdentifier(node.left)) {
+                if (isQualifiedName(node)) {
                     if (isImportEqualsDeclaration(node.parent) && node.parent.moduleReference === node) {
                         return node; // Can't elide the namespace part of an import assignment
                     }
-                    s = checker.getSymbolAtLocation(node.left);
+                    s = checker.getSymbolAtLocation(isQualifiedName(node.left) ? node.left.right : node.left);
                     rhsName = idText(node.right);
                     possibleSubstitute = node.right;
                 }
-                if (isPropertyAccessExpression(node) && isIdentifier(node.expression)) { // technically should handle parenthesis, casts, etc - maybe not needed, though
-                    s = checker.getSymbolAtLocation(node.expression);
+                if (isPropertyAccessExpression(node) && (isIdentifier(node.expression) || isPropertyAccessExpression(node.expression))) { // technically should handle parenthesis, casts, etc - maybe not needed, though
+                    s = checker.getSymbolAtLocation(isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression);
                     rhsName = idText(node.name);
                     possibleSubstitute = node.name;
                 }
@@ -61,6 +63,13 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                         const matchingImport = imports.find(i => checker.getSymbolAtLocation(i.importClause.namedBindings.name) === s);
                         if (matchingImport && addSyntheticImport((matchingImport.moduleSpecifier as StringLiteral).text, rhsName)) {
                             return possibleSubstitute;
+                        }
+                        if (!matchingImport && s.flags & SymbolFlags.Alias) {
+                            const aliasTarget = checker.getAliasedSymbol(s);
+                            const otherFile = aliasTarget.declarations.find(d => isSourceFile(d) && !d.isDeclarationFile) as SourceFile | undefined;
+                            if (otherFile && addSyntheticImport(getTSStyleRelativePath(file.fileName, otherFile.fileName).replace(/(\.d)?\.ts$/, ""), rhsName)) {
+                                return possibleSubstitute;
+                            }
                         }
                     }
                 }

@@ -103,6 +103,9 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
 
     // Copy config files to output
     allConfigFiles.forEach(f => {
+        if (path.basename(f) === "tsconfig.json" && fs.existsSync(f.replace("tsconfig.json", "tsconfig.release.json"))) {
+            allConfigFiles.add(f.replace("tsconfig.json", "tsconfig.release.json"));
+        }
         let content = fs.readFileSync(f).toString();
         if (transformConfig.onTransformConfigFile) {
             const result = ts.transform(ts.parseJsonText(f, content), [transformConfig.onTransformConfigFile]);
@@ -155,7 +158,6 @@ export function transformProject(rootConfig: string, outDir: string, getTransfor
             fs.mkdirSync(path.dirname(outPath), { recursive: true });
         }
         catch {}
-        console.log(`Writing ${outPath}`);
         fs.writeFileSync(outPath, content);
     }
 }

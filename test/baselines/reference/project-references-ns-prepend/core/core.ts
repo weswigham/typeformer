@@ -1,6 +1,7 @@
+// version numbers and helpers
 export const versionMajorMinor = "3.8";
 export const version = `${versionMajorMinor}.0-dev`;
-/* @internal */
+/** @internal */
 export function coreHelper1() {
     return "ok";
 }
@@ -12,3 +13,5 @@ export function coreHelper2() {
 export function coreHelper3() {
     return "ok";
 }
+// end of ns
+// file complete

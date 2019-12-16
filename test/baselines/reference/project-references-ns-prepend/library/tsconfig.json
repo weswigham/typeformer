@@ -1,7 +1,7 @@
 {
     "extends": "../tsconfig-noncomposite-base",
     "compilerOptions": {
-        "outDir": "../../output/library"
+        "outDir": "../../output"
     },
     "files": [
         "utils.ts",

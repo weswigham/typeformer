@@ -1,7 +1,7 @@
 {
     "extends": "../tsconfig-noncomposite-base",
     "compilerOptions": {
-        "outDir": "../../output/cli"
+        "outDir": "../../output"
     },
     "files": [
         "helpers.ts",

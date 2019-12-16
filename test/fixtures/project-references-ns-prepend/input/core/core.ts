@@ -1,3 +1,4 @@
+// version numbers and helpers
 namespace ns {
     export const versionMajorMinor = "3.8";
     export const version = `${versionMajorMinor}.0-dev`;
@@ -18,4 +19,5 @@ namespace ns {
     export function coreHelper3() {
         return "ok";
     }
-}
+} // end of ns
+// file complete
