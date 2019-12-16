@@ -7,6 +7,7 @@
     "files": [
         "core.ts",
         "nestedns.ts",
-        "nestedns2.ts"
+        "nestedns2.ts",
+        "comment.ts"
     ]
 }

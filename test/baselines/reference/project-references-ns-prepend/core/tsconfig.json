@@ -7,6 +7,7 @@
         "core.ts",
         "nestedns.ts",
         "nestedns2.ts",
+        "comment.ts",
         "./ns.ts",
         "./ns.nested.ts"
     ]

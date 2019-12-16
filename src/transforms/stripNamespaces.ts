@@ -199,11 +199,14 @@ export function getStripNamespacesTransformFactoryFactory(config: ProjectTransfo
                 const result = setTextRange(createNodeArray(removeUnusedNamespaceImports([...getRequiredImports(), ...statements])), file.statements);
                 // So the output is guaranteed to be a module, if we'd otherwise emit an empty file, emit `export {}`
                 // (We'll go back and clean those up later)
-                return updateSourceFileNode(file, result.length === 0 ? [createExportDeclaration(
-                    /*decorators*/ undefined,
-                    /*modifiers*/ undefined,
-                    ts.createNamedExports([]),
-                )] : result);
+                if (result.length === 0 || result.every(n => n.kind === SyntaxKind.NotEmittedStatement)) {
+                    (result as readonly Statement[] as Statement[]).push(createExportDeclaration(
+                        /*decorators*/ undefined,
+                        /*modifiers*/ undefined,
+                        ts.createNamedExports([]),
+                    ));
+                }
+                return updateSourceFileNode(file, result);
             }
     
             function getRequiredImports() {
