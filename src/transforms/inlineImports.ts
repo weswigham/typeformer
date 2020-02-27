@@ -1,4 +1,4 @@
-import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier, isImportEqualsDeclaration, isSourceFile, createNodeArray, setTextRange } from "typescript";
+import { TypeChecker, Symbol, TransformationContext, SourceFile, isImportDeclaration, isNamespaceImport, ImportDeclaration, ImportClause, NamespaceImport, visitNodes, updateSourceFileNode, Node, VisitResult, visitEachChild, isQualifiedName, isPropertyAccessExpression, isIdentifier, SymbolFlags, idText, StringLiteral, Identifier, createImportDeclaration, createImportClause, createNamedImports, createLiteral, createImportSpecifier, createIdentifier, isImportEqualsDeclaration, isSourceFile, createNodeArray, setTextRange, isPrivateIdentifier } from "typescript";
 import { getNamespaceImports, removeUnusedNamespaceImports } from "./removeUnusedNamespaceImports";
 import { getTSStyleRelativePath } from "./pathUtil";
 
@@ -46,7 +46,7 @@ function getInlineImportsTransformFactory(rawChecker: TypeChecker) {
                     rhsName = idText(node.right);
                     possibleSubstitute = node.right;
                 }
-                if (isPropertyAccessExpression(node) && (isIdentifier(node.expression) || isPropertyAccessExpression(node.expression))) { // technically should handle parenthesis, casts, etc - maybe not needed, though
+                if (isPropertyAccessExpression(node) && (isIdentifier(node.expression) || isPropertyAccessExpression(node.expression)) && !isPrivateIdentifier(node.name)) { // technically should handle parenthesis, casts, etc - maybe not needed, though
                     s = checker.getSymbolAtLocation(isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression);
                     rhsName = idText(node.name);
                     possibleSubstitute = node.name;
